@@ -19,6 +19,7 @@ services:
       HOSTNAME: "0.0.0.0"
       NODE_ENV: production
       HEADROOM_URL: http://headroom:8787
+      INITIAL_PASSWORD: "123456"
     depends_on:
       - headroom
 
