@@ -19,6 +19,9 @@ export async function GET(request) {
     const status = searchParams.get("status");
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
+    const apiKey = searchParams.get("apiKey");
+    const customer = searchParams.get("customer");
+    const ip = searchParams.get("ip");
     
     if (page < 1) {
       return NextResponse.json(
@@ -42,9 +45,12 @@ export async function GET(request) {
     if (provider) filter.provider = provider;
     if (model) filter.model = model;
     if (connectionId) filter.connectionId = connectionId;
-    if (status) filter.status = status;
+    if (status && status !== "all") filter.status = status;
     if (startDate) filter.startDate = startDate;
     if (endDate) filter.endDate = endDate;
+    if (apiKey) filter.apiKey = apiKey;
+    if (customer) filter.customer = customer;
+    if (ip) filter.ip = ip;
     
     const result = await getRequestDetails(filter);
 

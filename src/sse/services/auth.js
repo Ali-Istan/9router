@@ -1,4 +1,5 @@
-import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
+import { getProviderConnections, validateApiKey, getApiKeyByKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
+import { checkApiKeyModelAccess, isModelAllowed } from "./modelAcl.js";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
@@ -365,3 +366,69 @@ export async function isValidApiKey(apiKey) {
   if (!apiKey) return false;
   return await validateApiKey(apiKey);
 }
+
+/**
+ * Get full API key details (record)
+ */
+export async function getApiKeyDetails(apiKey) {
+  if (!apiKey) return null;
+  return await getApiKeyByKey(apiKey);
+}
+
+/**
+ * Extract client IP from request headers or socket
+ */
+export function extractClientIp(request) {
+  if (!request) return null;
+  const x9r = request.headers?.get?.("x-9r-real-ip");
+  if (x9r) return x9r;
+  const xRealIp = request.headers?.get?.("x-real-ip");
+  if (xRealIp) return xRealIp;
+  const xff = request.headers?.get?.("x-forwarded-for");
+  if (xff) return xff.split(",")[0].trim();
+  return null;
+}
+
+/**
+ * Validate API Key, Expiration, and Model ACL access
+ */
+export async function authenticateAndAuthorize({ request, modelStr, modelInfo = null, comboModels = null, requireApiKey = false }) {
+  const apiKey = extractApiKey(request);
+  if (!apiKey) {
+    if (requireApiKey) {
+      return { ok: false, status: 401, error: "Missing API key" };
+    }
+    return { ok: true, keyRecord: null, apiKey: null };
+  }
+
+  const keyRecord = await getApiKeyByKey(apiKey);
+  if (!keyRecord) {
+    return { ok: false, status: 401, error: "Invalid API key" };
+  }
+
+  if (keyRecord.isActive === false || keyRecord.enabled === false) {
+    return { ok: false, status: 401, error: "API key is disabled" };
+  }
+
+  if (keyRecord.expiresAt) {
+    const exp = new Date(keyRecord.expiresAt).getTime();
+    if (!Number.isNaN(exp) && exp < Date.now()) {
+      return { ok: false, status: 401, error: "API key has expired" };
+    }
+  }
+
+  if (modelStr) {
+    const access = checkApiKeyModelAccess(keyRecord, modelStr, modelInfo, comboModels);
+    if (!access.allowed) {
+      return {
+        ok: false,
+        status: 403,
+        error: access.reason || `Model '${modelStr}' is not allowed for this API key`,
+        keyRecord,
+      };
+    }
+  }
+
+  return { ok: true, keyRecord, apiKey };
+}
+
