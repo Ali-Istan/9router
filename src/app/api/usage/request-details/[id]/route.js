@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRequestDetailById } from "@/lib/usageDb";
+import { getRequestDetailById, flushRequestDetailsNow } from "@/lib/usageDb";
 
 /**
  * GET /api/usage/request-details/[id]
@@ -12,6 +12,7 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: "Missing detail ID" }, { status: 400 });
     }
 
+    await flushRequestDetailsNow().catch(() => {});
     const detail = await getRequestDetailById(id);
     if (!detail) {
       return NextResponse.json({ error: "Request detail not found" }, { status: 404 });

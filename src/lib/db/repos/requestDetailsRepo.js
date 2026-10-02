@@ -2,10 +2,10 @@ import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 
 const DEFAULT_MAX_RECORDS = 5000;
-const DEFAULT_BATCH_SIZE = 20;
-const DEFAULT_FLUSH_INTERVAL_MS = 3000;
-const DEFAULT_MAX_JSON_SIZE = 5 * 1024;
-const CONFIG_CACHE_TTL_MS = 5000;
+const DEFAULT_BATCH_SIZE = 10;
+const DEFAULT_FLUSH_INTERVAL_MS = 1500;
+const DEFAULT_MAX_JSON_SIZE = 256 * 1024;
+const CONFIG_CACHE_TTL_MS = 3000;
 
 let cachedConfig = null;
 let cachedConfigTs = 0;
@@ -23,7 +23,7 @@ async function getObservabilityConfig() {
         maxRecords: settings.observabilityMaxRecords || parseInt(process.env.OBSERVABILITY_MAX_RECORDS || String(DEFAULT_MAX_RECORDS), 10),
         batchSize: settings.observabilityBatchSize || parseInt(process.env.OBSERVABILITY_BATCH_SIZE || String(DEFAULT_BATCH_SIZE), 10),
         flushIntervalMs: settings.observabilityFlushIntervalMs || parseInt(process.env.OBSERVABILITY_FLUSH_INTERVAL_MS || String(DEFAULT_FLUSH_INTERVAL_MS), 10),
-        maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "5", 10)) * 1024,
+        maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "256", 10)) * 1024,
       };
       cachedConfigTs = Date.now();
       return cachedConfig;
@@ -32,14 +32,14 @@ async function getObservabilityConfig() {
     const uiFlag = typeof settings.enableObservability === "boolean";
     const enabled = uiFlag
       ? settings.enableObservability
-      : envFallback;
+      : (envFallback !== false);
 
     cachedConfig = {
       enabled,
       maxRecords: settings.observabilityMaxRecords || parseInt(process.env.OBSERVABILITY_MAX_RECORDS || String(DEFAULT_MAX_RECORDS), 10),
       batchSize: settings.observabilityBatchSize || parseInt(process.env.OBSERVABILITY_BATCH_SIZE || String(DEFAULT_BATCH_SIZE), 10),
       flushIntervalMs: settings.observabilityFlushIntervalMs || parseInt(process.env.OBSERVABILITY_FLUSH_INTERVAL_MS || String(DEFAULT_FLUSH_INTERVAL_MS), 10),
-      maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "5", 10)) * 1024,
+      maxJsonSize: (settings.observabilityMaxJsonSize || parseInt(process.env.OBSERVABILITY_MAX_JSON_SIZE || "256", 10)) * 1024,
     };
   } catch {
     cachedConfig = {
@@ -78,11 +78,35 @@ function generateDetailId(model) {
 }
 
 function truncateField(obj, maxSize) {
-  const str = JSON.stringify(obj || {});
-  if (str.length > maxSize) {
-    return { _truncated: true, _originalSize: str.length, _preview: str.substring(0, 200) };
+  if (!obj || typeof obj !== "object") return obj || {};
+  const str = JSON.stringify(obj);
+  if (str.length <= maxSize) return obj;
+
+  // Preserve messages array for UI display if possible
+  if (Array.isArray(obj.messages)) {
+    const truncatedMessages = obj.messages.map((m) => {
+      if (typeof m.content === "string" && m.content.length > 4000) {
+        return { ...m, content: m.content.slice(0, 4000) + "\n...[truncated]" };
+      }
+      return m;
+    });
+    const candidate = { ...obj, messages: truncatedMessages, _truncated: true };
+    if (JSON.stringify(candidate).length <= maxSize) {
+      return candidate;
+    }
   }
-  return obj || {};
+
+  // Preserve response text if possible
+  if (typeof obj.content === "string") {
+    return {
+      ...obj,
+      content: obj.content.slice(0, 4000) + "\n...[truncated]",
+      _truncated: true,
+      _originalSize: str.length,
+    };
+  }
+
+  return { _truncated: true, _originalSize: str.length, _preview: str.substring(0, 300) };
 }
 
 async function flushToDatabase() {

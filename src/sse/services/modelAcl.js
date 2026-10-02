@@ -166,19 +166,42 @@ export function checkApiKeyModelAccess(keyRecord, requestedModel, modelInfo = nu
  * @param {string[]|string} allowedModels
  * @returns {Array<{ id: string }>}
  */
-export function filterAllowedModels(modelsList, allowedModels) {
-  // Support both filterAllowedModels(modelsList, allowedModels) and filterAllowedModels(allowedModels, modelsList)
-  if (!Array.isArray(modelsList) && Array.isArray(allowedModels)) {
-    const temp = modelsList;
-    modelsList = allowedModels;
-    allowedModels = temp;
+export function filterAllowedModels(arg1, arg2) {
+  let modelsList = arg1;
+  let allowedModels = arg2;
+
+  // Detect which argument is the list of model objects/items to filter
+  // vs which argument is the permission rules list
+  const isArg1ModelObjects = Array.isArray(arg1) && arg1.length > 0 && typeof arg1[0] === "object" && arg1[0] !== null;
+  const isArg2ModelObjects = Array.isArray(arg2) && arg2.length > 0 && typeof arg2[0] === "object" && arg2[0] !== null;
+
+  if (isArg2ModelObjects && !isArg1ModelObjects) {
+    modelsList = arg2;
+    allowedModels = arg1;
+  } else if (!Array.isArray(arg1) && Array.isArray(arg2)) {
+    modelsList = arg2;
+    allowedModels = arg1;
   }
 
   if (!Array.isArray(modelsList)) return [];
-  if (!allowedModels || (Array.isArray(allowedModels) && allowedModels.includes("*"))) {
+
+  let list = allowedModels;
+  if (typeof list === "string") {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      list = list.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+  }
+
+  if (!list || (Array.isArray(list) && list.includes("*"))) {
     return modelsList;
   }
-  return modelsList.filter((m) => isModelAllowed(allowedModels, m.id || m.model || m.name));
+
+  return modelsList.filter((m) => {
+    const id = typeof m === "string" ? m : (m?.id || m?.model || m?.name);
+    return isModelAllowed(list, id, null, m?.comboModels);
+  });
 }
 
 export default {

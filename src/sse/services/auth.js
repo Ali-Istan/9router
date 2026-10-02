@@ -340,20 +340,44 @@ export async function clearAccountError(connectionId, currentConnection, model =
   await updateProviderConnection(connectionId, clearObj);
 }
 
-/**
- * Extract API key from request headers
- */
 export function extractApiKey(request) {
-  // Check Authorization header first
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice(7);
+  if (!request) return null;
+
+  const getHeader = (name) => {
+    if (typeof request.headers?.get === "function") {
+      return request.headers.get(name) || request.headers.get(name.toLowerCase());
+    }
+    if (request.headers && typeof request.headers === "object") {
+      return request.headers[name] || request.headers[name.toLowerCase()] || request.headers[name.toUpperCase()];
+    }
+    return null;
+  };
+
+  const authHeader = getHeader("authorization");
+  if (authHeader && typeof authHeader === "string") {
+    const trimmed = authHeader.trim();
+    if (/^bearer\s+/i.test(trimmed)) {
+      return trimmed.replace(/^bearer\s+/i, "").trim();
+    }
+    if (/^token\s+/i.test(trimmed)) {
+      return trimmed.replace(/^token\s+/i, "").trim();
+    }
+    if (!trimmed.toLowerCase().startsWith("basic ") && !trimmed.toLowerCase().startsWith("digest ")) {
+      return trimmed;
+    }
   }
 
-  // Check Anthropic x-api-key header
-  const xApiKey = request.headers.get("x-api-key");
-  if (xApiKey) {
-    return xApiKey;
+  const altKey = getHeader("x-api-key") || getHeader("api-key") || getHeader("x-goog-api-key");
+  if (altKey && typeof altKey === "string") {
+    return altKey.trim();
+  }
+
+  if (request.url) {
+    try {
+      const url = new URL(request.url, "http://localhost");
+      const qKey = url.searchParams.get("key") || url.searchParams.get("apiKey") || url.searchParams.get("api_key");
+      if (qKey) return qKey.trim();
+    } catch {}
   }
 
   return null;

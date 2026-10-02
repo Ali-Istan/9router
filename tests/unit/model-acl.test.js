@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isModelAllowed, checkApiKeyModelAccess, filterAllowedModels } from "@/sse/services/modelAcl.js";
+import { extractApiKey } from "@/sse/services/auth.js";
 
 describe("Model ACL - isModelAllowed", () => {
   it("wildcard '*' permits all models", () => {
@@ -169,5 +170,54 @@ describe("Model ACL - filterAllowedModels", () => {
     // Customer 4: all models
     const filtered4 = filterAllowedModels(availableModels, ["*"]);
     expect(filtered4.length).toBe(5);
+
+    // Swapped argument order tolerance: filterAllowedModels(allowedModels, availableModels)
+    const filteredSwapped = filterAllowedModels(["deepseek"], availableModels);
+    expect(filteredSwapped.map((m) => m.id)).toEqual(["deepseek-chat", "deepseek-reasoner"]);
+
+    // Combo models: allowed by combo name
+    const comboModels = [
+      { id: "Emam", object: "model", owned_by: "combo", comboModels: ["mmf/mimo-auto"] },
+      { id: "OtherCombo", object: "model", owned_by: "combo", comboModels: ["oc/spark"] },
+      { id: "mmf/mimo-auto", object: "model" },
+    ];
+    const filteredComboByName = filterAllowedModels(comboModels, ["Emam"]);
+    expect(filteredComboByName.map((m) => m.id)).toEqual(["Emam"]);
+
+    // Combo models: allowed by underlying model
+    const filteredComboBySub = filterAllowedModels(comboModels, ["mmf/mimo-auto"]);
+    expect(filteredComboBySub.map((m) => m.id)).toContain("Emam");
+    expect(filteredComboBySub.map((m) => m.id)).toContain("mmf/mimo-auto");
+    expect(filteredComboBySub.map((m) => m.id)).not.toContain("OtherCombo");
   });
 });
+
+describe("Auth - extractApiKey", () => {
+  it("extracts key from Authorization: Bearer <key>", () => {
+    const req = { headers: { get: (h) => h.toLowerCase() === "authorization" ? "Bearer sk-alpha-123" : null } };
+    expect(extractApiKey(req)).toBe("sk-alpha-123");
+  });
+
+  it("extracts key from case-insensitive bearer header", () => {
+    const req = { headers: { get: (h) => h.toLowerCase() === "authorization" ? "bearer   sk-beta-456  " : null } };
+    expect(extractApiKey(req)).toBe("sk-beta-456");
+  });
+
+  it("extracts key from x-api-key or api-key header", () => {
+    const req1 = { headers: { get: (h) => h.toLowerCase() === "x-api-key" ? "sk-anthropic-1" : null } };
+    const req2 = { headers: { get: (h) => h.toLowerCase() === "api-key" ? "sk-azure-1" : null } };
+    expect(extractApiKey(req1)).toBe("sk-anthropic-1");
+    expect(extractApiKey(req2)).toBe("sk-azure-1");
+  });
+
+  it("extracts key from URL query string ?key=...", () => {
+    const req = { headers: {}, url: "http://localhost:20127/v1/models?key=sk-query-token" };
+    expect(extractApiKey(req)).toBe("sk-query-token");
+  });
+
+  it("returns null when no key is present", () => {
+    const req = { headers: {} };
+    expect(extractApiKey(req)).toBeNull();
+  });
+});
+

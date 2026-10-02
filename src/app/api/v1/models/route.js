@@ -382,6 +382,7 @@ export async function buildModelsList(kindFilter, options = {}) {
       id: combo.name,
       object: "model",
       owned_by: "combo",
+      comboModels: combo.models,
     };
     if (combo.kind === "webSearch" || combo.kind === "webFetch") {
       entry.kind = combo.kind;
@@ -659,7 +660,7 @@ export async function GET(request) {
     if (apiKey) {
       const keyRecord = await getApiKeyByKey(apiKey);
       if (keyRecord && keyRecord.allowedModels && !keyRecord.allowedModels.includes("*")) {
-        data = filterAllowedModels(keyRecord.allowedModels, data);
+        data = filterAllowedModels(data, keyRecord.allowedModels);
       }
     }
 
